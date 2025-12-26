@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PM Log Serwisowy Pojazdów v 5.43</title>
+    
+    <!-- Biblioteki zewnętrzne -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    
+    <!-- Biblioteki do PDF i QR Code -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.21/jspdf.plugin.autotable.min.js"></script>
+    <!-- Biblioteka do generowania kodów QR -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <style>
+        /* Import czcionki Inter */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #f3f4f6; 
+            -webkit-tap-highlight-color: transparent; 
+        }
+        
+        .container { 
+            max-width: 1000px; 
+        }
+        
+        /* Cień dla kart */
+        .card-shadow { 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 4, 0.06); 
+        }
+        
+        /* Styl pól formularza */
+        .input-field { 
+            @apply mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-gray-900; 
+            appearance: none; 
+            -webkit-appearance: none;
+            min-height: 44px; 
+        }
+        
+        input[type="date"] {
+            display: block;
+            -webkit-appearance: textfield;
+            -moz-appearance: textfield;
+            min-height: 44px;
+        }
+
+        /* Zakładki pojazdów */
+        .vehicle-tab { 
+            @apply text-sm sm:text-base px-3 py-2 rounded-lg transition duration-150 border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center; 
+            white-space: nowrap; 
+        }
+        .vehicle-tab.active { 
+            @apply bg-indigo-600 text-white font-bold border-indigo-700 shadow-md hover:bg-indigo-700; 
+        }
+        
+        /* Animacja AI */
+        @keyframes pulse-ai { 
+            0%, 100% { transform: scale(1); opacity: 1; } 
+            50% { transform: scale(1.1); opacity: 0.7; } 
+        }
+        .ai-pulse { animation: pulse-ai 2s infinite; }
+        
+        /* Magiczny przycisk */
+        .magic-btn { 
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); 
+            color: white; 
+            transition: all 0.3s ease; 
+        }
+        .magic-btn:hover { 
+            filter: brightness(110%); 
+            transform: translateY(-1px); 
+            box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4); 
+        }
+        
+        /* Kafelki statusu */
+        .status-tile { 
+            transition: all 0.2s ease-in-out; 
+            cursor: pointer; 
+            position: relative; 
+        }
+        .status-tile:hover { 
+            transform: translateY(-2px); 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 4, 0.06); 
+        }
+        .status-tile:hover .edit-icon { opacity: 1; }
+        .status-tile .edit-icon { opacity: 0; transition: opacity 0.2s; }
+        
+        /* Zadania wykonane */
+        .task-item.completed span { 
+            text-decoration: line-through; 
+            color: #9ca3af; 
+        }
+        
+        /* Style do druku */
+        @media print {
+            body { background-color: white !important; padding: 0 !important; margin: 0 !important; }
+            .card-shadow, .bg-white { box-shadow: none !important; border: none !important; }
+            header, #vehicle-tabs-container, #add-service-btn, #app-footer, #edit-owner-btn, #pdf-generate-btn, 
+            .delete-btn, #set-default-btn, #edit-vehicle-details-btn, #delete-vehicle-btn, #ai-assist-btn, 
+            .modal, .print-hidden, #owner-edit-buttons, .task-actions, .add-task-container, 
+            #import-vehicle-btn, #export-vehicle-btn { display: none !important; }
+            
+            #printable-content { display: block !important; width: 100%; margin: 0; }
+            #owner-section, #vehicle-status-section, #tasks-section, #service-history-section { 
+                display: block !important; margin-bottom: 20px; padding: 0; 
+            }
+            #tasks-section { border: 1px solid #ddd; page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body class="p-3 sm:p-8">
+
+    <!-- Ukryty kontener do generowania kodów QR -->
+    <div id="qrcode-container" class="hidden"></div>
+
+    <div class="container mx-auto" id="printable-content">
+        <!-- Nagłówek Aplikacji -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-indigo-700 mb-0"><i class="fas fa-tools mr-3"></i>PM Log Serwisowy</h1>
+            <p class="text-xs sm:text-sm text-gray-500 mt-1 font-semibold">Projekt: Piotr Mazurek - P.M. CODE</p>
+            <a href="https://sites.google.com/view/pm-log-serwisowy-pojazdow/strona-g%C5%82%C3%B3wna" target="_blank" class="inline-flex items-center mt-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100 hover:text-indigo-800 transition duration-150 print-hidden"><i class="fas fa-info-circle mr-1.5"></i> Info & WWW</a>
+        </header>
+        
+        <!-- Sekcja Danych Właściciela -->
+        <div id="owner-section" class="bg-white p-4 rounded-xl card-shadow mb-6 flex flex-col md:flex-row justify-between items-start md:items-stretch gap-4">
+            <div id="owner-info" class="flex-1 w-full">
+                <h2 class="text-xl font-semibold text-indigo-600 mb-2">Dane Właściciela</h2>
+                <div id="owner-display" class="text-sm sm:text-base">
+                    <p class="text-gray-700"><span class="font-medium">Imię:</span> <span id="owner-name-display" class="text-gray-500 italic">Ładowanie...</span></p>
+                    <p class="text-gray-700"><span class="font-medium">Tel:</span> <span id="owner-phone-display" class="text-gray-500 italic">Ładowanie...</span></p>
+                    <p class="text-gray-700"><span class="font-medium">Email:</span> <span id="owner-email-display" class="text-gray-500 italic">Ładowanie...</span></p>
+                </div>
+                <div id="owner-edit-buttons" class="print-hidden mt-3">
+                    <button id="edit-owner-btn" class="text-xs px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition duration-150 font-medium"><i class="fas fa-edit mr-1"></i> Edytuj</button>
+                </div>
+            </div>
+            <div class="flex flex-col justify-end items-end w-full md:w-auto mt-2 md:mt-0">
+                <div id="today-date-display" class="text-xs font-medium text-gray-400 mb-2">Data: <span id="current-date-text"></span></div>
+                <button id="pdf-generate-btn" class="print-hidden w-full md:w-auto text-sm px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out shadow-sm flex justify-center items-center">
+                    <i class="fas fa-file-pdf mr-2"></i> Generuj Raport PDF
+                </button>
+            </div>
+        </div>
+
+        <!-- Sekcja Wyboru Pojazdu (Zakładki) -->
+        <div id="vehicle-tabs-container" class="print-hidden bg-white p-4 rounded-xl card-shadow mb-6">
+            <div class="flex flex-wrap items-center justify-between border-b pb-3 mb-3 gap-2">
+                <h2 class="text-lg sm:text-xl font-semibold text-indigo-600">Twoje Pojazdy:</h2>
+                <div class="flex gap-2">
+                    <input type="file" id="import-file-input" class="hidden" accept=".json">
+                    <button id="import-vehicle-btn" class="text-xs sm:text-sm px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition"><i class="fas fa-file-import sm:mr-1"></i><span class="hidden sm:inline">Import</span></button>
+                    <button id="add-vehicle-btn" class="text-xs sm:text-sm px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition shadow-sm"><i class="fas fa-plus sm:mr-1"></i><span class="hidden sm:inline">Dodaj</span></button>
+                </div>
+            </div>
+            <div id="vehicle-tabs" class="flex flex-wrap gap-2 overflow-x-auto pb-2 -mb-2"></div>
+            <div id="loading-vehicles" class="text-center text-gray-500 p-2 text-sm">Ładowanie floty...</div>
+        </div>
+
+        <!-- Główny Kontener (Widoczny po wybraniu pojazdu) -->
+        <div id="main-content" class="space-y-6 hidden">
+            
+            <!-- SEKCA 1: STATUS POJAZDU (Kafelki) -->
+            <div id="vehicle-status-section" class="bg-white p-4 sm:p-6 rounded-xl card-shadow">
+                
+                <!-- Górny pasek statusu -->
+                <div class="flex flex-col gap-4 mb-4 border-b pb-4">
+                    <div class="flex flex-wrap gap-2 justify-end print-hidden">
+                        <button id="export-vehicle-btn" class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded border border-blue-200 hover:bg-blue-200"><i class="fas fa-file-export mr-1"></i> Eksport</button>
+                        <button id="set-default-btn" class="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded border border-gray-200 hover:bg-gray-200"><i class="fas fa-star mr-1"></i> Domyślny</button>
+                        <button id="edit-vehicle-details-btn" class="text-xs px-2 py-1 bg-teal-100 text-teal-700 rounded border border-teal-200 hover:bg-teal-200"><i class="fas fa-car mr-1"></i> Edytuj</button>
+                        <button id="delete-vehicle-btn" class="text-xs px-2 py-1 bg-red-100 text-red-700 rounded border border-red-200 hover:bg-red-200"><i class="fas fa-trash-alt mr-1"></i> Usuń</button>
+                    </div>
+
+                    <div>
+                        <h2 class="text-xl sm:text-2xl font-semibold text-indigo-600">Status Pojazdu</h2>
+                        <h3 class="text-lg sm:text-xl font-semibold text-gray-800 flex items-center mt-1 flex-wrap">
+                            <span id="current-vehicle-icon" class="mr-3 text-indigo-500 text-2xl"></span>
+                            <span id="current-vehicle-name"></span>
+                        </h3>
+                        <p class="text-sm text-gray-500 mt-1" id="current-vehicle-details"></p>
+                    </div>
+                </div>
+
+                <p class="text-xs text-indigo-500 mb-3 print-hidden"><i class="fas fa-info-circle mr-1"></i>Kliknij kafelek, aby zaktualizować.</p>
+                <!-- Siatka Kafelków Statusu -->
+                <div id="status-display" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"></div>
+            </div>
+
+            <!-- SEKCJA 2: ZADANIA (TO-DO LIST) -->
+            <div id="tasks-section" class="bg-white p-4 sm:p-6 rounded-xl card-shadow">
+                <h2 class="text-xl font-semibold text-indigo-600 mb-4 border-b pb-2 flex items-center">
+                    <i class="fas fa-check-double mr-3"></i> Zadania
+                </h2>
+                <div class="flex gap-2 mb-4 print-hidden add-task-container">
+                    <input type="text" id="new-task-input" class="input-field flex-1 text-sm" placeholder="Nowe zadanie...">
+                    <button id="add-task-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"><i class="fas fa-plus"></i></button>
+                </div>
+                <div id="active-tasks-list" class="space-y-2 mb-4"></div>
+                <p id="no-tasks-msg" class="text-gray-400 text-sm text-center italic hidden">Brak zadań.</p>
+                
+                <div id="completed-tasks-container" class="mt-4 border-t pt-3">
+                    <button id="toggle-completed-tasks" class="text-sm text-gray-500 hover:text-indigo-600 flex items-center font-medium print-hidden">
+                        <i class="fas fa-chevron-right mr-2 transition-transform" id="toggle-icon"></i> Pokaż wykonane (<span id="completed-count">0</span>)
+                    </button>
+                    <div id="completed-tasks-list" class="space-y-2 mt-3 hidden"></div>
+                </div>
+            </div>
+
+            <!-- SEKCJA 3: HISTORIA SERWISOWA -->
+            <div id="service-history-section" class="bg-white p-4 sm:p-6 rounded-xl card-shadow">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-4 border-b pb-4 gap-3">
+                    <h2 class="text-xl font-semibold text-indigo-600 mb-0">Historia Serwisowa</h2>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <button id="ai-assist-btn" class="magic-btn flex-1 sm:flex-none text-xs sm:text-sm px-4 py-2 rounded-lg shadow-md flex items-center justify-center"><i class="fas fa-robot mr-2"></i> AI</button>
+                        <button id="add-service-btn" class="bg-indigo-600 text-white flex-1 sm:flex-none px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-xs sm:text-sm font-medium flex items-center justify-center"><i class="fas fa-plus-circle mr-2"></i> Dodaj</button>
+                    </div>
+                </div>
+                <div id="service-list" class="space-y-4">
+                    <p class="text-center text-gray-500" id="loading-services">Ładowanie wpisów...</p>
+                </div>
+                <div id="no-data-message" class="text-center text-gray-500 p-4 hidden">
+                    <i class="fas fa-search-dollar text-4xl mb-2 text-gray-300"></i>
+                    <p>Brak historii.</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Stan początkowy -->
+        <div id="empty-state" class="print-hidden text-center p-8 sm:p-12 bg-white rounded-xl card-shadow hidden">
+            <i class="fas fa-shuttle-van text-5xl sm:text-6xl text-gray-300 mb-4"></i>
+            <h3 class="text-xl sm:text-2xl font-medium text-gray-700">Witaj w garażu!</h3>
+            <button id="empty-add-vehicle-btn" class="mt-6 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"><i class="fas fa-car-side mr-2"></i> Dodaj Pierwszy Pojazd</button>
+        </div>
+    </div>
+
+    <!-- Stopka -->
+    <footer id="app-footer" class="container mx-auto mt-8 pt-4 border-t border-gray-300 text-center text-xs text-gray-500 space-y-1 print-hidden pb-8">
+        <p>Wersja Aplikacji: <span id="app-version-display" class="font-semibold text-gray-700">5.43</span></p>
+        <div id="user-info" class="break-all px-2"></div>
+    </footer>
+	<!-- MODAL 1: Potwierdzenie Akcji -->
+    <div id="confirm-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-sm p-6 shadow-2xl">
+            <h3 class="text-xl font-bold mb-4 text-red-700" id="confirm-modal-title"></h3>
+            <p class="text-gray-700 mb-6" id="confirm-modal-message"></p>
+            <div class="flex justify-end space-x-3">
+                <button id="confirm-cancel-btn" class="px-4 py-2 text-sm bg-gray-200 rounded-lg">Anuluj</button>
+                <button id="confirm-action-btn" class="px-4 py-2 text-sm text-white bg-red-600 rounded-lg">Potwierdź</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Asystent AI -->
+    <div id="ai-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-80 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-2xl p-0 card-shadow overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 text-white flex justify-between items-center">
+                <div class="flex items-center space-x-3"><i class="fas fa-robot text-xl ai-pulse"></i><h3 class="text-lg font-bold">Analiza Pojazdu AI</h3></div>
+                <button id="close-ai-modal" class="text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="ai-content" class="p-4 sm:p-6 overflow-y-auto min-h-[300px]"></div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: Dodaj/Edytuj Pojazd -->
+    <div id="vehicle-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-lg p-6 card-shadow overflow-y-auto max-h-[90vh]">
+            <h3 class="text-2xl font-bold mb-4 text-indigo-700" id="modal-title">Dodaj Pojazd</h3>
+            <form id="vehicle-form" class="space-y-4">
+                <input type="text" id="reg-number" required class="input-field uppercase" placeholder="Nr Rejestracyjny">
+                <input type="text" id="make" required class="input-field" placeholder="Marka">
+                <input type="text" id="model" required class="input-field" placeholder="Model">
+                <div class="grid grid-cols-2 gap-4">
+                    <input type="number" id="production-year" class="input-field" placeholder="Rok">
+                    <input type="text" id="vin-number" class="input-field uppercase" placeholder="VIN">
+                </div>
+                <select id="type" required class="input-field"><option value="Samochód">Samochód</option><option value="Motocykl">Motocykl</option><option value="Inny">Inny</option></select>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" id="close-vehicle-modal" class="px-4 py-2 bg-gray-200 rounded-lg">Anuluj</button>
+                    <button type="submit" id="submit-vehicle-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg">Zapisz</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 4: Generic Modal (Olej, Filtry, Płyny, Hamulce) -->
+    <div id="generic-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-sm p-6 card-shadow">
+            <h3 class="text-xl font-bold mb-4 text-indigo-700" id="gm-title"></h3>
+            <input type="hidden" id="gm-type">
+            <input type="hidden" id="gm-subtype">
+            
+            <div id="gm-fields" class="space-y-4 mb-4">
+                <!-- Tu JavaScript dynamicznie wstrzykuje inputy -->
+            </div>
+            
+            <div class="flex flex-col space-y-2">
+                <button id="gm-save-service" class="w-full px-4 py-3 font-bold text-white bg-green-600 rounded-lg flex justify-center items-center"><i class="fas fa-plus-circle mr-2"></i> Zapisz i dodaj wpis</button>
+                <button id="gm-save-only" class="w-full px-4 py-3 text-white bg-indigo-600 rounded-lg">Tylko zaktualizuj dane</button>
+                <button id="gm-cancel" class="w-full px-4 py-3 bg-gray-200 rounded-lg">Anuluj</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 5: Edycja Właściciela -->
+    <div id="owner-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-sm p-6 card-shadow">
+            <h3 class="text-2xl font-bold mb-4 text-indigo-700">Edytuj Właściciela</h3>
+            <form id="owner-form" class="space-y-4">
+                <input type="text" id="owner-name" required class="input-field" placeholder="Imię">
+                <input type="tel" id="owner-phone" required class="input-field" placeholder="Telefon">
+                <input type="email" id="owner-email" class="input-field" placeholder="Email">
+                <div class="flex justify-end space-x-3 pt-4"><button type="button" id="close-owner-modal" class="px-4 py-2 bg-gray-200 rounded-lg">Anuluj</button><button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg">Zapisz</button></div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- MODAL 6: Opony -->
+    <div id="tire-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-md p-6 card-shadow max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-bold mb-4 text-indigo-700">Zarządzanie Oponami</h3>
+            <div id="tire-set-selector-container" class="mb-4">
+                <label class="block text-sm font-medium text-gray-700">Edytowany Zestaw</label>
+                <select id="tire-current-set" class="input-field"><option value="Letnie">Letnie</option><option value="Zimowe">Zimowe</option><option value="Wielosezonowe">Wielosezonowe</option></select>
+            </div>
+            <div id="tire-inputs-car" class="space-y-4 mb-6">
+                 <h4 class="text-sm font-bold border-b pb-2">DOT (Tydzień/Rok)</h4>
+                 <div class="grid grid-cols-2 gap-4">
+                     <input type="text" id="tire-car-fl" class="input-field text-center" placeholder="LP" maxlength="4">
+                     <input type="text" id="tire-car-fr" class="input-field text-center" placeholder="PP" maxlength="4">
+                     <input type="text" id="tire-car-rl" class="input-field text-center" placeholder="LT" maxlength="4">
+                     <input type="text" id="tire-car-rr" class="input-field text-center" placeholder="PT" maxlength="4">
+                 </div>
+            </div>
+            <div id="tire-inputs-moto" class="space-y-4 mb-6 hidden">
+                <h4 class="text-sm font-bold border-b pb-2">DOT</h4>
+                <div class="grid grid-cols-2 gap-4">
+                    <input type="text" id="tire-moto-front" class="input-field text-center" placeholder="Przód" maxlength="4">
+                    <input type="text" id="tire-moto-rear" class="input-field text-center" placeholder="Tył" maxlength="4">
+                </div>
+            </div>
+            <div class="flex flex-col space-y-2">
+                <button id="btn-save-tires-service" class="w-full px-4 py-3 font-bold text-white bg-green-600 rounded-lg">Zapisz (Wymiana/Update)</button>
+                <button id="btn-save-tires-only" class="w-full px-4 py-3 text-white bg-indigo-600 rounded-lg">Tylko Zapisz Dane</button>
+                <button id="btn-cancel-tires" class="w-full px-4 py-3 bg-gray-200 rounded-lg">Anuluj</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 7: Dodaj Wpis Serwisowy -->
+    <div id="service-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-2xl p-6 card-shadow max-h-[95vh] overflow-y-auto">
+            <h3 class="text-2xl font-bold mb-4 text-indigo-700">Dodaj Wpis Serwisowy</h3>
+            
+            <div class="mb-6 p-4 bg-indigo-50 border border-indigo-100 rounded-lg">
+                <div class="flex justify-between mb-2"><h4 class="text-sm font-bold text-indigo-800"><i class="fas fa-sparkles mr-2"></i>Smart Fill</h4><button id="smart-fill-toggle" class="text-xs text-indigo-600 underline">Pokaż/Ukryj</button></div>
+                <div id="smart-fill-container" class=""><textarea id="smart-fill-text" rows="2" class="input-field text-sm mb-2" placeholder="Notatka..."></textarea><button type="button" id="btn-smart-fill" class="magic-btn w-full py-1.5 rounded text-sm shadow-sm">✨ Wypełnij</button></div>
+            </div>
+            
+            <form id="service-form-inner" class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <input type="date" id="service-date" required class="input-field" placeholder="Data">
+                    <input type="text" inputmode="numeric" id="service-mileage" required class="input-field format-thousands" placeholder="Przebieg (np. 145 000)">
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 border p-2 rounded bg-gray-50">
+                    <div><label class="text-xs text-gray-500">Części</label><input type="number" id="cost-parts" value="0" class="input-field text-right"></div>
+                    <div><label class="text-xs text-gray-500">Robocizna</label><input type="number" id="cost-labor" value="0" class="input-field text-right"></div>
+                    <div><label class="text-xs text-gray-500">Inne</label><input type="number" id="cost-fees" value="0" class="input-field text-right"></div>
+                    <div><label class="text-xs text-indigo-700 font-bold">Razem</label><input type="text" id="cost-total-display" disabled value="0" class="input-field bg-indigo-100 font-bold text-right text-indigo-800"></div>
+                </div>
+                <textarea id="service-description" required rows="4" class="input-field w-full" placeholder="Opis wykonanych czynności..."></textarea>
+                <p id="service-error-message" class="text-red-500 text-sm hidden"></p>
+                <div class="flex justify-end space-x-3 pt-4"><button type="button" id="close-service-modal" class="px-4 py-2 bg-gray-200 rounded-lg">Anuluj</button><button type="submit" id="submit-service-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg">Zapisz</button></div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- MODAL 8: Pojedyncza Edycja -->
+    <div id="single-edit-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl w-[95%] max-w-sm p-6 card-shadow">
+            <h3 class="text-xl font-bold mb-4 text-indigo-700" id="single-edit-title">Edytuj</h3>
+            <form id="single-edit-form">
+                <input type="hidden" id="single-edit-key">
+                <label id="single-edit-label" class="block text-sm font-medium text-gray-700 mb-1">Wartość</label>
+                <input id="single-edit-input" class="input-field" required>
+                <div class="flex justify-end space-x-3 mt-4">
+                    <button type="button" id="close-single-edit-modal" class="px-4 py-2 bg-gray-200 rounded-lg">Anuluj</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg">Zapisz</button>
+                </div>
+            </form>
+        </div>
+    </div>
+	<script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, onSnapshot, collection, query, deleteDoc, Timestamp, setDoc, updateDoc, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- UTILS ---
+        const el = (id) => document.getElementById(id);
+        const safeClass = (id, action, cls) => { const e = el(id); if(e) e.classList[action](cls); };
+        const safeText = (id, txt) => { const e = el(id); if(e) e.textContent = txt; };
+        const safeVal = (id, val) => { const e = el(id); if(e) e.value = val; };
+        const formatNum = (num) => new Intl.NumberFormat('pl-PL').format(num);
+        
+        // Funkcja do formatowania inputów
+        const setupFormatters = () => {
+            const inputs = document.querySelectorAll('.format-thousands, #gm-input2, #gm-input1[type="text"], #single-edit-input');
+            inputs.forEach(inp => {
+                inp.addEventListener('input', (e) => {
+                    if(e.target.type === 'date') return;
+                    let val = e.target.value.replace(/\D/g, '');
+                    if (val) {
+                        e.target.value = new Intl.NumberFormat('pl-PL').format(parseInt(val));
+                    }
+                });
+            });
+        };
+        const parseFormatted = (val) => {
+            if(typeof val === 'number') return val;
+            if(!val) return 0;
+            return parseInt(val.toString().replace(/\s/g, '').replace(/\u00A0/g, ''));
+        };
+
+        const apiKey = ""; 
+        let app, db, auth, userId = null, isAuthenticated = false;
+        let vehicles = [], selectedVehicleId = null, defaultVehicleId = null, currentServices = [];
+        let unsubscribeServices = () => {}, unsubscribeOwner = () => {}, unsubscribeTasks = () => {};
+        // Zmienna do śledzenia edytowanego pojazdu
+        let editingVehicleId = null;
+
+        const APP_COLLECTION_ID = 'vehicle-service-log';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const serverTimestamp = () => Timestamp.now();
+
+        async function initialize() {
+            app = initializeApp(firebaseConfig); db = getFirestore(app); auth = getAuth(app);
+            onAuthStateChanged(auth, u => {
+                if (u) { userId = u.uid; isAuthenticated = true; setupOwnerData(); }
+                else { userId = null; isAuthenticated = false; safeClass('main-content','add','hidden'); safeClass('empty-state','remove','hidden'); }
+            });
+            if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken); else await signInAnonymously(auth);
+            setupFormatters();
+        }
+
+        // --- GEMINI API HELPERS ---
+        async function callGemini(promptText) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: promptText }] }] };
+            const delays = [1000, 2000];
+            for (let i = 0; i <= delays.length; i++) {
+                try {
+                    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || "Błąd: Brak odpowiedzi AI.";
+                } catch (err) {
+                    if (i === delays.length) throw err;
+                    await new Promise(r => setTimeout(r, delays[i]));
+                }
+            }
+        }
+
+        // --- ASYSTENT AI LOGIKA ---
+        el('ai-assist-btn').onclick = async () => {
+            if(!selectedVehicleId) return;
+            const v = vehicles.find(x => x.id === selectedVehicleId);
+            if(!v) return;
+
+            safeClass('ai-modal', 'remove', 'hidden');
+            el('ai-modal').style.display = 'flex';
+            el('ai-content').innerHTML = '<div class="text-center p-8"><i class="fas fa-spinner fa-spin text-4xl text-indigo-600 mb-4"></i><p class="text-lg text-gray-700 font-medium">AI analizuje dane pojazdu...</p><p class="text-sm text-gray-400">Może to potrwać kilka sekund.</p></div>';
+
+            const servicesText = currentServices.slice(0, 10).map(s => `${s.date}: ${s.description} (przy ${s.mileage} km)`).join('\n');
+            const prompt = `
+            Jesteś ekspertem mechaniki pojazdowej. Analizujesz pojazd:
+            Marka/Model: ${v.make} ${v.model}
+            Rok Produkcji: ${v.production_year || 'Nieznany'}
+            Aktualny Przebieg: ${v.current_mileage || 'Nieznany'} km
+            VIN: ${v.vin || 'Brak'}
+            Typ: ${v.type}
+
+            Ostatnie 10 wpisów w historii serwisowej:
+            ${servicesText || 'Brak zapisanej historii.'}
+
+            Twoje zadanie:
+            1. Przeanalizuj przebieg i wiek pojazdu w kontekście typowych usterek dla tego typu aut/motocykli.
+            2. Na podstawie historii (lub jej braku) wypisz 3-5 najważniejszych zaleceń serwisowych na "teraz" (np. jeśli nie było rozrządu, a przebieg na to wskazuje).
+            3. Jeśli brakuje kluczowych serwisów (np. olej, płyny) dla tego przebiegu, podkreśl to.
+            4. Sformatuj odpowiedź w czystym HTML (użyj <h4> dla nagłówków sekcji, <ul class="list-disc pl-5 space-y-2"><li> dla punktów, <strong> dla ważnych elementów). Nie używaj Markdown.
+            `;
+
+            try {
+                const response = await callGemini(prompt);
+                const cleanHtml = response.replace(/```html/g, '').replace(/```/g, '');
+                el('ai-content').innerHTML = `<div class="prose prose-sm max-w-none text-gray-700">${cleanHtml}</div>`;
+            } catch (e) {
+                el('ai-content').innerHTML = `<div class="text-red-500 p-4 text-center"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p>Błąd analizy AI: ${e.message}</p></div>`;
+            }
+        };
+
+        el('close-ai-modal').onclick = () => { safeClass('ai-modal', 'add', 'hidden'); el('ai-modal').style.display = 'none'; };
+
+
+        // --- DATA ---
+        function setupOwnerData() {
+            unsubscribeOwner();
+            unsubscribeOwner = onSnapshot(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'profile', 'owner_data'), s => {
+                const d = s.data() || { name: 'Nieustawione', phone: '-', email: '-' };
+                safeText('owner-name-display', d.name); safeText('owner-phone-display', d.phone); safeText('owner-email-display', d.email);
+                defaultVehicleId = d.default_vehicle_id;
+                loadVehicles();
+            });
+        }
+
+        function loadVehicles() {
+            onSnapshot(query(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles')), s => {
+                const newVehicles = [];
+                s.forEach(d => newVehicles.push({id: d.id, ...d.data()}));
+                newVehicles.sort((a,b) => (a.id===defaultVehicleId?-1:b.id===defaultVehicleId?1:0));
+                
+                vehicles = newVehicles;
+
+                if (vehicles.length) {
+                    const exists = vehicles.some(v => v.id === selectedVehicleId);
+                    if (!selectedVehicleId || !exists) {
+                        const def = vehicles.find(v => v.id === defaultVehicleId);
+                        selectedVehicleId = def ? defaultVehicleId : vehicles[0].id;
+                    }
+                    renderTabs(); 
+                    selectVehicle(selectedVehicleId);
+                    safeClass('empty-state','add','hidden'); safeClass('main-content','remove','hidden');
+                } else {
+                    selectedVehicleId = null; 
+                    safeClass('empty-state','remove','hidden'); safeClass('main-content','add','hidden');
+                }
+                safeClass('loading-vehicles','add','hidden');
+            });
+        }
+
+        function renderTabs() {
+            const tabs = el('vehicle-tabs'); if(!tabs) return; tabs.innerHTML = '';
+            vehicles.forEach(v => {
+                const b = document.createElement('button');
+                b.className = `vehicle-tab ${v.id === selectedVehicleId ? 'active' : ''}`;
+                const icon = v.type === 'Motocykl' ? '<i class="fas fa-motorcycle mr-2"></i>' : '<i class="fas fa-car mr-2"></i>';
+                const star = v.id===defaultVehicleId ? '<i class="fas fa-star text-yellow-300 mr-1"></i>' : '';
+                b.innerHTML = `${star}${icon}${v.make} ${v.model}`;
+                b.onclick = () => selectVehicle(v.id);
+                tabs.appendChild(b);
+            });
+        }
+
+        function selectVehicle(id) {
+            if (!id) return;
+            const v = vehicles.find(x => x.id === id);
+            if (!v) return;
+
+            selectedVehicleId = id; 
+            unsubscribeServices(); 
+            unsubscribeTasks(); 
+            renderTabs();
+            
+            safeText('current-vehicle-name', `${v.make} ${v.model} (${v.registration})`);
+            safeText('current-vehicle-details', `VIN: ${v.vin||'-'} | Rok: ${v.production_year||'-'}`);
+            if(el('current-vehicle-icon')) el('current-vehicle-icon').className = `${v.type==='Motocykl'?'fas fa-motorcycle':'fas fa-car'} mr-4 text-indigo-500 text-2xl`;
+            
+            renderStatus(v); setupTasksListener(id);
+            safeClass('loading-services','remove','hidden');
+            
+            unsubscribeServices = onSnapshot(query(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', id, 'services')), s => {
+                currentServices = []; s.forEach(d => currentServices.push({id:d.id, ...d.data()}));
+                currentServices.sort((a,b) => new Date(b.date) - new Date(a.date));
+                renderServices();
+                renderStatus(v);
+            });
+        }
+
+        function renderServices() {
+            const list = el('service-list'); if(!list) return; list.innerHTML = '';
+            
+            if (currentServices.length === 0) {
+                safeClass('no-data-message', 'remove', 'hidden');
+                safeClass('loading-services', 'add', 'hidden');
+            } else {
+                safeClass('no-data-message', 'add', 'hidden');
+                safeClass('loading-services', 'add', 'hidden');
+                
+                currentServices.forEach(s => {
+                    const div = document.createElement('div');
+                    div.className = 'bg-gray-50 p-3 rounded-lg border border-gray-100 flex justify-between items-start hover:bg-white hover:shadow-sm transition';
+                    div.innerHTML = `
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 text-sm font-bold text-gray-700">
+                                <i class="far fa-calendar-alt text-indigo-400"></i>
+                                <span>${new Date(s.date).toLocaleDateString('pl-PL')}</span>
+                                <span class="text-gray-300">|</span>
+                                <span class="text-indigo-600">${formatNum(s.mileage)} km</span>
+                            </div>
+                            <p class="text-gray-600 mt-1 text-sm whitespace-pre-line">${s.description}</p>
+                            <div class="text-xs text-gray-400 mt-1">Koszt: <span class="font-medium text-gray-600">${s.cost_total||0} PLN</span></div>
+                        </div>
+                        <button onclick="window.delS('${s.id}')" class="ml-2 text-red-300 hover:text-red-500 p-2 transition"><i class="fas fa-trash"></i></button>
+                    `;
+                    list.appendChild(div);
+                });
+            }
+        }
+        
+        window.delS = async(id) => {
+            if(await customConfirm('Usunąć wpis?', 'Tej operacji nie można cofnąć.', 'Usuń')) {
+                await deleteDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',selectedVehicleId,'services',id));
+            }
+        };
+
+        function customConfirm(title, message, actionText = 'Potwierdź') {
+            return new Promise((resolve) => {
+                const m = el('confirm-modal');
+                safeText('confirm-modal-title', title); safeText('confirm-modal-message', message);
+                const btn = el('confirm-action-btn'); btn.textContent = actionText;
+                btn.className = actionText.toLowerCase().includes('usuń') ? "px-4 py-2 text-sm text-white bg-red-600 rounded-lg" : "px-4 py-2 text-sm text-white bg-indigo-600 rounded-lg";
+                safeClass('confirm-modal','remove','hidden'); m.style.display = 'flex';
+                const cleanup = () => { btn.onclick = null; el('confirm-cancel-btn').onclick = null; safeClass('confirm-modal','add','hidden'); m.style.display = 'none'; };
+                btn.onclick = () => { cleanup(); resolve(true); }; el('confirm-cancel-btn').onclick = () => { cleanup(); resolve(false); };
+            });
+        }
+
+        // --- OBSŁUGA EDYCJI POJAZDU (PRZYWRÓCONA FUNKCJONALNOŚĆ) ---
+        el('edit-vehicle-details-btn').onclick = () => {
+            if(!selectedVehicleId) return;
+            const v = vehicles.find(x => x.id === selectedVehicleId);
+            if(!v) return;
+
+            editingVehicleId = selectedVehicleId; // Ustaw flagę edycji
+            safeText('modal-title', 'Edytuj Pojazd');
+            
+            // Wypełnij formularz danymi
+            safeVal('reg-number', v.registration || '');
+            safeVal('make', v.make || '');
+            safeVal('model', v.model || '');
+            safeVal('production-year', v.production_year || '');
+            safeVal('vin-number', v.vin || '');
+            safeVal('type', v.type || 'Samochód');
+            
+            el('submit-vehicle-btn').textContent = "Zapisz Zmiany";
+            safeClass('vehicle-modal','remove','hidden'); 
+            el('vehicle-modal').style.display = 'flex';
+        };
+
+        // Resetowanie formularza przy dodawaniu nowego
+        el('add-vehicle-btn').onclick = () => {
+            editingVehicleId = null; // Reset flagi edycji
+            safeText('modal-title', 'Dodaj Pojazd');
+            el('vehicle-form').reset();
+            el('submit-vehicle-btn').textContent = "Zapisz";
+            safeClass('vehicle-modal','remove','hidden'); 
+            el('vehicle-modal').style.display='flex';
+        };
+        
+        el('empty-add-vehicle-btn').onclick = el('add-vehicle-btn').onclick;
+
+        el('close-vehicle-modal').onclick = () => { safeClass('vehicle-modal','add','hidden'); el('vehicle-modal').style.display='none'; };
+        
+        // Zaktualizowany Handler Formularza Pojazdu
+        el('vehicle-form').onsubmit = async (e) => { 
+            e.preventDefault();
+            const data = {
+                registration: el('reg-number').value.toUpperCase(),
+                make: el('make').value,
+                model: el('model').value,
+                type: el('type').value,
+                production_year: el('production-year').value,
+                vin: el('vin-number').value.toUpperCase()
+            };
+
+            if (editingVehicleId) {
+                // TRYB EDYCJI: Aktualizuj istniejący
+                await setDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',editingVehicleId), data, {merge: true});
+            } else {
+                // TRYB DODAWANIA: Nowy dokument
+                data.createdAt = serverTimestamp();
+                await addDoc(collection(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles'), data);
+            }
+            safeClass('vehicle-modal','add','hidden'); 
+            el('vehicle-modal').style.display='none'; 
+        };
+
+        // --- PDF GENERATION ---
+        el('pdf-generate-btn').onclick = async () => {
+            if (!selectedVehicleId) return;
+            const btn = el('pdf-generate-btn'); const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Generowanie...';
+            
+            try {
+                const { jsPDF } = window.jspdf; const doc = new jsPDF();
+                const v = vehicles.find(x => x.id === selectedVehicleId);
+                const owner = el('owner-name-display').textContent;
+
+                const qrUrl = "https://sites.google.com/view/pm-log-serwisowy-pojazdow/strona-g%C5%82%C3%B3wna";
+                const qrContainer = el('qrcode-container'); qrContainer.innerHTML = '';
+                new QRCode(qrContainer, { text: qrUrl, width: 100, height: 100 });
+                await new Promise(r => setTimeout(r, 100));
+                const qrImgData = qrContainer.querySelector('img').src;
+
+                try {
+                    const fRes = await fetch("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf");
+                    const fBuf = await fRes.arrayBuffer();
+                    const fB64 = btoa(new Uint8Array(fBuf).reduce((d, b) => d + String.fromCharCode(b), ''));
+                    doc.addFileToVFS('Roboto-Regular.ttf', fB64);
+                    doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+                    doc.setFont('Roboto');
+                } catch (e) { console.warn("Font error", e); doc.setFont("helvetica"); }
+
+                doc.setFontSize(10); doc.setTextColor(100);
+                doc.text("Piotr Mazurek - P.M. CODE", 14, 15);
+                doc.setFontSize(22); doc.setTextColor(40, 40, 40);
+                doc.text("Raport Serwisowy", 14, 25);
+                doc.addImage(qrImgData, 'PNG', 170, 10, 25, 25);
+                doc.setFontSize(8); doc.text("Skanuj Info", 175, 38);
+                doc.setFontSize(10); doc.setTextColor(0);
+                doc.text(`Wersja aplikacji: 5.43 | Data: ${new Date().toLocaleDateString('pl-PL')}`, 14, 32);
+
+                doc.setDrawColor(200); doc.line(14, 42, 196, 42);
+                doc.setFontSize(12);
+                doc.text(`Właściciel: ${owner}`, 14, 50);
+                doc.text(`Pojazd: ${v.make} ${v.model} (${v.registration})`, 14, 56);
+                doc.text(`VIN: ${v.vin||'-'} | Rok: ${v.production_year||'-'} | Przebieg: ${formatNum(v.current_mileage||0)} km`, 14, 62);
+
+                const items = [
+                    { k: 'inspection_due', l: 'Badanie Techniczne', t: 'date' },
+                    { k: 'insurance_due', l: 'Ubezpieczenie OC/AC', t: 'date' },
+                    { k: 'oil_change_date', l: 'Wymiana Oleju (Data)', t: 'date' },
+                    { k: 'oil_change_mileage', l: 'Wymiana Oleju (Przebieg)', t: 'mileage' },
+                    { k: 'filter_air_date', l: 'Filtr Powietrza (Data)', t: 'date' },
+                    { k: 'filter_air_mileage', l: 'Filtr Powietrza (Przebieg)', t: 'mileage' },
+                    { k: 'filter_cabin_date', l: 'Filtr Kabinowy (Data)', t: 'date' },
+                    { k: 'filter_cabin_mileage', l: 'Filtr Kabinowy (Przebieg)', t: 'mileage' },
+                    { k: 'fluid_date', l: 'Płyn Hamulcowy', t: 'date' },
+                    { k: 'coolant_date', l: 'Płyn Chłodniczy', t: 'date' },
+                    { k: 'pads_front_mileage', l: 'Klocki Przód', t: 'mileage' },
+                    { k: 'pads_rear_mileage', l: 'Klocki Tył', t: 'mileage' },
+                    { k: 'discs_front_mileage', l: 'Tarcze Przód', t: 'mileage' },
+                    { k: 'discs_rear_mileage', l: 'Tarcze Tył', t: 'mileage' },
+                    { k: 'tire_current_set', l: 'Opony (Zestaw)', t: 'text' }
+                ];
+                if(v.type === 'Motocykl') {
+                     items.push({k:'chain_lube_mileage', l:'Smarowanie Łańcucha', t:'mileage'}, {k:'chain_kit_mileage', l:'Zestaw Napędowy', t:'mileage'});
+                }
+
+                const statusBody = items.map(i => {
+                    let val = v[i.k];
+                    if(!val) return [i.l, '-'];
+                    if(i.t==='date') return [i.l, new Date(val).toLocaleDateString('pl-PL')];
+                    if(i.t==='mileage') return [i.l, formatNum(val)+' km'];
+                    return [i.l, val];
+                }).filter(r => r[1] !== '-'); 
+
+                doc.autoTable({ startY: 70, head: [['Element', 'Status']], body: statusBody, styles: { font: "Roboto" }, theme: 'grid' });
+
+                const rows = currentServices.map(s => [s.date, `${formatNum(s.mileage)} km`, s.description, `${s.cost_total||0} PLN`]);
+                doc.text("Historia Serwisowa", 14, doc.lastAutoTable.finalY + 10);
+                doc.autoTable({ startY: doc.lastAutoTable.finalY + 15, head: [['Data', 'Przebieg', 'Opis', 'Koszt']], body: rows, styles: { font: "Roboto" } });
+
+                doc.save(`Raport_${v.registration}.pdf`);
+            } catch(e) { alert("Błąd PDF: "+e.message); } finally { btn.innerHTML = originalText; }
+        };
+
+        // --- RENDER STATUS ---
+        function renderStatus(vehicle) {
+            const container = el('status-display'); if(!container) return; container.innerHTML = '';
+            let currentKm = vehicle.current_mileage || 0;
+            if (currentServices.length > 0) { const max = Math.max(...currentServices.map(s => s.mileage)); if(max > currentKm) currentKm = max; }
+
+            const items = [
+                { key: 'current_mileage', label: 'Przebieg', icon: 'fas fa-road', type: 'mileage', action: 'custom', modal: 'mileage' },
+                { key: 'inspection_due', label: 'Badanie Tech.', icon: 'fas fa-shield-alt', type: 'date', due: true },
+                { key: 'insurance_due', label: 'Ubezpieczenie', icon: 'fas fa-file-invoice-dollar', type: 'date', due: true },
+                { key: 'oil_service_combined', label: 'Olej', icon: 'fas fa-oil-can', type: 'combined', modal: 'oil', limD: 365, limK: 15000, fields: ['oil_change_date', 'oil_change_mileage'] },
+                { key: 'filter_air', label: 'Filtr Powietrza', icon: 'fas fa-wind', type: 'combined', modal: 'filter_air', limD: 730, limK: 25000, fields: ['air_filter_date', 'air_filter_mileage'] },
+                
+                { key: 'fluid_date', label: 'Płyn Hamulcowy', icon: 'fas fa-tint', type: 'date_only', modal: 'fluid', limD: 730 }, 
+                { key: 'coolant_date', label: 'Płyn Chłodniczy', icon: 'fas fa-snowflake', type: 'date_only', modal: 'coolant', limD: 1825 }, 
+                { key: 'pads_front_mileage', label: 'Klocki Przód', icon: 'fas fa-stop-circle', type: 'mileage_only', modal: 'pads', sub: 'front', limK: 30000 },
+                { key: 'pads_rear_mileage', label: 'Klocki Tył', icon: 'far fa-stop-circle', type: 'mileage_only', modal: 'pads', sub: 'rear', limK: 30000 },
+                { key: 'discs_front_mileage', label: 'Tarcze Przód', icon: 'fas fa-compact-disc', type: 'mileage_only', modal: 'discs', sub: 'front', limK: 60000 },
+                { key: 'discs_rear_mileage', label: 'Tarcze Tył', icon: 'fas fa-compact-disc', type: 'mileage_only', modal: 'discs', sub: 'rear', limK: 60000 },
+                
+                { key: 'tires_combined', label: 'Opony', icon: 'fas fa-circle-notch', type: 'tires', action: 'tire_modal' }
+            ];
+            
+            if (vehicle.type === 'Samochód') items.splice(5, 0, { key: 'filter_cabin', label: 'Filtr Kabinowy', icon: 'fas fa-fan', type: 'combined', modal: 'filter_cabin', limD: 365, limK: 15000, fields: ['cabin_filter_date', 'cabin_filter_mileage'] });
+            if (vehicle.type === 'Motocykl') {
+                 const idx = items.findIndex(i => i.key === 'filter_cabin'); if(idx > -1) items.splice(idx,1);
+                 items.push(
+                    { key: 'chain_lube_mileage', label: 'Smar. Łańcucha', icon: 'fas fa-spray-can', type: 'mileage_only', modal: 'chain', sub: 'lube', limK: 800 },
+                    { key: 'chain_kit_mileage', label: 'Napęd', icon: 'fas fa-cogs', type: 'mileage_only', modal: 'chain', sub: 'kit', limK: 25000 }
+                );
+            }
+
+            items.forEach(item => {
+                let val = vehicle[item.key]; if(item.key==='current_mileage') val=currentKm;
+                let txt='Brak', bg='bg-gray-50', border='border-gray-200', col='text-gray-800', subHtml='', badge='';
+
+                if (item.type === 'mileage') { txt=`${formatNum(val)} km`; col='text-indigo-700 font-bold'; bg='bg-indigo-50'; }
+                else if (item.type === 'date' && val) { 
+                    const diff=Math.ceil((new Date(val)-new Date())/86400000); txt=new Date(val).toLocaleDateString('pl-PL');
+                    if(diff<0 && item.due) { bg='bg-red-50'; border='border-red-400'; badge='Po terminie!'; }
+                    else if(diff<30 && item.due) { bg='bg-yellow-50'; border='border-yellow-400'; badge='Wkrótce'; }
+                }
+                else if (item.type === 'date_only' && val) {
+                    const diffDays = Math.floor((new Date() - new Date(val))/(1000*60*60*24));
+                    const years = (diffDays/365).toFixed(1);
+                    txt = `${years} lat temu`;
+                    if(diffDays > item.limD) { bg='bg-red-50'; border='border-red-400'; badge='Wymień!'; }
+                    subHtml = `<div class="text-xs text-gray-500 mt-1">${new Date(val).toLocaleDateString('pl-PL')}</div>`;
+                }
+                else if (item.type === 'mileage_only' && val && currentKm) {
+                    const diff = currentKm - val;
+                    txt = `${formatNum(diff)} km temu`;
+                    if(diff > item.limK) { bg='bg-red-50'; border='border-red-400'; badge='Sprawdź!'; }
+                    else if(diff > item.limK*0.8) { bg='bg-yellow-50'; border='border-yellow-400'; }
+                }
+                else if (item.type === 'combined' && vehicle[item.fields[0]]) {
+                    const dVal = vehicle[item.fields[0]]; const kVal = vehicle[item.fields[1]];
+                    txt = `${new Date(dVal).toLocaleDateString('pl-PL')} | ${formatNum(kVal)} km`;
+                    const diffDays = Math.floor((new Date()-new Date(dVal))/(1000*60*60*24));
+                    const diffKm = currentKm - kVal;
+                    if(diffDays > item.limD || diffKm > item.limK) { bg='bg-red-50'; border='border-red-400'; badge='Wymień!'; }
+                    subHtml = `<div class="text-xs text-gray-500 mt-1">${formatNum(diffKm)} km temu</div>`;
+                }
+                else if(item.type === 'tires') txt = vehicle.type==='Motocykl' ? "Przód / Tył" : (vehicle.tire_current_set || 'Letnie');
+
+                const d = document.createElement('div');
+                d.className = `status-tile p-3 rounded-lg border ${bg} ${border} relative`;
+                d.innerHTML = `
+                    <div class="flex justify-between mb-1 items-center"><div class="flex items-center text-indigo-600"><i class="${item.icon} mr-2"></i><span class="text-sm font-medium text-gray-500">${item.label}</span></div><i class="fas fa-pencil-alt text-indigo-300 text-xs edit-icon"></i></div>
+                    <p class="${col} truncate text-lg font-semibold">${txt}</p>
+                    ${subHtml}
+                    ${badge ? `<span class="absolute bottom-2 right-2 text-xs font-bold px-1.5 py-0.5 rounded ${bg.includes('red')?'text-red-600 bg-red-100':'text-yellow-600 bg-yellow-100'}">${badge}</span>` : ''}
+                `;
+                d.onclick = () => {
+                    if(item.action==='tire_modal') loadTireModal(vehicle);
+                    else if(item.type==='combined' || item.type==='date_only' || item.type==='mileage_only' || item.action==='custom') openGenericModal(item, vehicle, currentKm);
+                    else openSingleEditModal(item, val);
+                };
+                container.appendChild(d);
+            });
+        }
+        
+        // --- GENERIC MODAL LOGIC ---
+        function openGenericModal(item, v, currentKm) {
+            const m = el('generic-modal'); const f = el('gm-fields'); f.innerHTML = '';
+            el('gm-title').innerHTML = `<i class="${item.icon} mr-2"></i>${item.label}`;
+            el('gm-type').value = item.modal; el('gm-subtype').value = item.sub || '';
+            
+            if(item.modal === 'mileage') f.innerHTML = `<label class="text-sm font-medium">Aktualny Przebieg</label><input type="text" inputmode="numeric" id="gm-input1" class="input-field text-lg font-bold format-thousands" value="${formatNum(currentKm)}">`;
+            else if(['oil','filter_air','filter_cabin'].includes(item.modal)) {
+                 const dK = item.fields[0]; const mK = item.fields[1];
+                 f.innerHTML = `<label class="text-sm">Data</label><input type="date" id="gm-input1" class="input-field mb-2" value="${v[dK]||''}"><label class="text-sm">Przebieg</label><input type="text" inputmode="numeric" id="gm-input2" class="input-field font-bold format-thousands" value="${formatNum(v[mK]||currentKm)}">`;
+            }
+            else if(['fluid','coolant'].includes(item.modal)) {
+                 f.innerHTML = `<label class="text-sm">Data Wymiany</label><input type="date" id="gm-input1" class="input-field" value="${v[item.key]||''}">`;
+            }
+            else if(['pads','discs','chain'].includes(item.modal)) {
+                 f.innerHTML = `<label class="text-sm">Przebieg przy wymianie/serwisie</label><input type="text" inputmode="numeric" id="gm-input1" class="input-field font-bold format-thousands" value="${formatNum(v[item.key]||currentKm)}">`;
+            }
+
+            safeClass('generic-modal','remove','hidden'); m.style.display = 'flex';
+            setupFormatters();
+        }
+
+        el('gm-save-service').onclick = () => saveGeneric(true);
+        el('gm-save-only').onclick = () => saveGeneric(false);
+        el('gm-cancel').onclick = () => { safeClass('generic-modal','add','hidden'); el('generic-modal').style.display = 'none'; };
+
+        async function saveGeneric(ws) {
+             const t = el('gm-type').value; const sub = el('gm-subtype').value;
+             const v1_raw = el('gm-input1').value; const v2_raw = el('gm-input2')?.value;
+             const v1 = el('gm-input1').type === 'text' ? parseFormatted(v1_raw) : v1_raw;
+             const v2 = parseFormatted(v2_raw);
+
+             let d = {}; let desc = '';
+             
+             if(t === 'mileage') { d = { current_mileage: v1 }; desc='Korekta licznika'; }
+             else if(t === 'oil') { d = { oil_change_date: v1, oil_change_mileage: v2 }; desc='Wymiana oleju'; }
+             else if(t === 'filter_air') { d = { air_filter_date: v1, air_filter_mileage: v2 }; desc='Wymiana f. powietrza'; }
+             else if(t === 'filter_cabin') { d = { cabin_filter_date: v1, cabin_filter_mileage: v2 }; desc='Wymiana f. kabinowego'; }
+             else if(t === 'fluid' || t === 'coolant') { 
+                 d = { [t+'_date']: v1 }; desc=`Wymiana: ${t==='fluid'?'Płyn Hamulcowy':'Płyn Chłodniczy'}`; 
+             }
+             else if(t === 'pads' || t === 'discs') {
+                 const key = `${t}_${sub}_mileage`; d = { [key]: v1 }; 
+                 desc = `Wymiana: ${t==='pads'?'Klocki':'Tarcze'} (${sub==='front'?'Przód':'Tył'})`;
+             }
+             else if(t === 'chain') {
+                 const key = `chain_${sub}_mileage`; d = { [key]: v1 };
+                 desc = sub==='lube' ? 'Smarowanie łańcucha' : 'Wymiana napędu';
+             }
+
+             await setDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId), d, {merge:true});
+             
+             if(ws) {
+                 let kmLog = v2 || v1;
+                 if(isNaN(kmLog) || t==='fluid' || t==='coolant') kmLog = vehicles.find(v=>v.id===selectedVehicleId).current_mileage || 0;
+                 await addDoc(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId, 'services'), {
+                     date: new Date().toISOString().split('T')[0], mileage: kmLog, description: desc, cost_total: 0, createdAt: serverTimestamp()
+                 });
+             }
+             safeClass('generic-modal','add','hidden'); el('generic-modal').style.display = 'none';
+        }
+
+        // --- OBSŁUGA POZOSTAŁYCH MODALI ---
+        el('edit-owner-btn').onclick = () => {
+             safeVal('owner-name', el('owner-name-display').textContent); safeVal('owner-phone', el('owner-phone-display').textContent); safeVal('owner-email', el('owner-email-display').textContent);
+             safeClass('owner-modal','remove','hidden'); el('owner-modal').style.display = 'flex';
+        };
+        el('owner-form').onsubmit = async (e) => { e.preventDefault(); await setDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'profile', 'owner_data'), { name: el('owner-name').value, phone: el('owner-phone').value, email: el('owner-email').value }, {merge:true}); safeClass('owner-modal','add','hidden'); el('owner-modal').style.display = 'none'; };
+        el('close-owner-modal').onclick = () => { safeClass('owner-modal','add','hidden'); el('owner-modal').style.display = 'none'; };
+
+        // Single Edit
+        function openSingleEditModal(item, val) {
+            safeVal('single-edit-key', item.key); safeText('single-edit-title', item.label);
+            const inp = el('single-edit-input');
+            if(item.type === 'mileage' || item.type === 'mileage_only') {
+                inp.type = 'text'; inp.inputMode = 'numeric'; inp.classList.add('format-thousands');
+                inp.value = formatNum(val || 0);
+            } else if (item.type === 'date' || item.type === 'date_only') {
+                inp.type = 'date'; inp.classList.remove('format-thousands');
+                inp.value = val || '';
+            } else {
+                inp.type = 'text'; inp.classList.remove('format-thousands');
+                inp.value = val || '';
+            }
+            safeClass('single-edit-modal','remove','hidden'); el('single-edit-modal').style.display = 'flex';
+            setupFormatters();
+        }
+        el('single-edit-form').onsubmit = async (e) => { e.preventDefault(); const k = el('single-edit-key').value; 
+            let v = el('single-edit-input').value; 
+            if(el('single-edit-input').classList.contains('format-thousands')) v = parseFormatted(v);
+            await setDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId), {[k]:v}, {merge:true}); safeClass('single-edit-modal','add','hidden'); el('single-edit-modal').style.display = 'none'; 
+        };
+        el('close-single-edit-modal').onclick = () => { safeClass('single-edit-modal','add','hidden'); el('single-edit-modal').style.display = 'none'; };
+        
+        // --- POZOSTAŁE FUNKCJE ---
+        function setupTasksListener(vid) {
+             unsubscribeTasks(); unsubscribeTasks = onSnapshot(query(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', vid, 'tasks'), orderBy('createdAt','desc')), s => {
+                 const t = []; s.forEach(d=>t.push({id:d.id, ...d.data()})); renderTasks(t);
+             });
+        }
+        function renderTasks(ts) {
+             const al = el('active-tasks-list'); const cl = el('completed-tasks-list'); al.innerHTML=''; cl.innerHTML='';
+             ts.forEach(t => {
+                 const h = `<div class="task-item flex justify-between p-2 hover:bg-gray-50 border-b ${t.isCompleted?'completed':''}"><div class="flex items-center gap-3"><button onclick="window.togT('${t.id}',${t.isCompleted})"><i class="${t.isCompleted?'fas fa-check-circle text-green-500':'far fa-circle text-gray-300'}"></i></button><span>${t.title}</span></div><button onclick="window.delT('${t.id}')"><i class="fas fa-trash text-red-300"></i></button></div>`;
+                 if(t.isCompleted) cl.innerHTML+=h; else al.innerHTML+=h;
+             });
+        }
+        window.togT = async(id,st) => await updateDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',selectedVehicleId,'tasks',id),{isCompleted:!st});
+        window.delT = async(id) => await deleteDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',selectedVehicleId,'tasks',id));
+        el('add-task-btn').onclick = async () => { if(el('new-task-input').value) await addDoc(collection(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',selectedVehicleId,'tasks'),{title:el('new-task-input').value, isCompleted:false, createdAt:serverTimestamp()}); el('new-task-input').value=''; };
+        el('toggle-completed-tasks').onclick = () => el('completed-tasks-list').classList.toggle('hidden');
+
+        el('delete-vehicle-btn').onclick = async () => { if(await customConfirm("Usunąć pojazd?", "Tej operacji nie można cofnąć.", "Usuń")) { await deleteDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',selectedVehicleId)); if(selectedVehicleId===defaultVehicleId) await setDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'profile','owner_data'),{default_vehicle_id:null},{merge:true}); }};
+        el('set-default-btn').onclick = async () => await setDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'profile','owner_data'),{default_vehicle_id:selectedVehicleId},{merge:true});
+        
+        el('add-service-btn').onclick = () => { el('service-form-inner').reset(); el('service-date').valueAsDate = new Date(); safeClass('service-modal','remove','hidden'); el('service-modal').style.display = 'flex'; };
+        el('close-service-modal').onclick = () => { safeClass('service-modal','add','hidden'); el('service-modal').style.display = 'none'; };
+        el('service-form-inner').onsubmit = async (e) => { 
+            e.preventDefault(); 
+            const dt = el('service-date').value;
+            const mi = parseFormatted(el('service-mileage').value);
+            const ds = el('service-description').value, cp = parseInt(el('cost-parts').value)||0, cl = parseInt(el('cost-labor').value)||0, cf = parseInt(el('cost-fees').value)||0; 
+            await addDoc(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId, 'services'), { date: dt, mileage: mi, description: ds, cost_parts: cp, cost_labor: cl, cost_fees: cf, cost_total: cp+cl+cf, createdAt: serverTimestamp() }); safeClass('service-modal','add','hidden'); el('service-modal').style.display = 'none'; 
+        };
+        
+        // Tires logic
+        function loadTireModal(v) { 
+             const isMoto = v.type === 'Motocykl';
+             el('tire-inputs-car').className = isMoto ? 'hidden' : 'space-y-4 mb-6';
+             el('tire-inputs-moto').className = isMoto ? 'space-y-4 mb-6' : 'hidden';
+             el('tire-set-selector-container').className = isMoto ? 'hidden' : 'mb-4';
+             if(isMoto) { safeVal('tire-moto-front', v.tire_moto_front||''); safeVal('tire-moto-rear', v.tire_moto_rear||''); }
+             else { const set = v.tire_current_set || 'Letnie'; safeVal('tire-current-set', set); loadCarTires(v, set); }
+             safeClass('tire-modal','remove','hidden'); el('tire-modal').style.display = 'flex';
+        }
+        function loadCarTires(v, set) {
+            let p = set === 'Zimowe' ? 'tire_car_winter' : (set === 'Wielosezonowe' ? 'tire_car_allseason' : 'tire_car_summer');
+            safeVal('tire-car-fl', v[p+'_fl']||''); safeVal('tire-car-fr', v[p+'_fr']||''); safeVal('tire-car-rl', v[p+'_rl']||''); safeVal('tire-car-rr', v[p+'_rr']||'');
+        }
+        el('tire-current-set').onchange=()=>{const v=vehicles.find(x=>x.id===selectedVehicleId);if(v)loadCarTires(v,el('tire-current-set').value);};
+        el('btn-save-tires-only').onclick=()=>savT(false); el('btn-save-tires-service').onclick=()=>savT(true);
+        el('btn-cancel-tires').onclick=()=>{safeClass('tire-modal','add','hidden');el('tire-modal').style.display='none';};
+        async function savT(ws){
+            const v=vehicles.find(x=>x.id===selectedVehicleId); const m=v.type==='Motocykl'; let d={},desc='';
+            if(m){ d={tire_moto_front:el('tire-moto-front').value, tire_moto_rear:el('tire-moto-rear').value}; desc="Wymiana/Update opon (Motocykl)"; }
+            else{ const s=el('tire-current-set').value; let p=s==='Zimowe'?'tire_car_winter':(s==='Wielosezonowe'?'tire_car_allseason':'tire_car_summer'); d={tire_current_set:s,[p+'_fl']:el('tire-car-fl').value,[p+'_fr']:el('tire-car-fr').value,[p+'_rl']:el('tire-car-rl').value,[p+'_rr']:el('tire-car-rr').value}; desc=`Wymiana/Update opon (${s})`; }
+            await setDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',selectedVehicleId),d,{merge:true});
+            if(ws) await addDoc(collection(db,'artifacts',APP_COLLECTION_ID,'users',userId,'vehicles',selectedVehicleId,'services'),{date:new Date().toISOString().split('T')[0],mileage:v.current_mileage||0,description:desc,cost_total:0,createdAt:serverTimestamp()});
+            safeClass('tire-modal','add','hidden'); el('tire-modal').style.display='none';
+        }
+
+        window.onload = initialize;
+        safeText('current-date-text', new Date().toLocaleDateString('pl-PL'));
+    </script>
+</body> 	
+</html>

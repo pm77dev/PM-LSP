@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PM Log Serwisowy Pojazdów v 5.46</title>
+    <title>PM Log Serwisowy Pojazdów v 5.47</title>
     
     <!-- Biblioteki zewnętrzne -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -48,7 +48,20 @@
     </style>
 </head>
 <body class="p-3 sm:p-8">
+    
+    <div id="login-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#f3f4f6; z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+        <h1 class="text-3xl font-bold text-indigo-700 mb-4">PM Log Serwisowy</h1>
+        <p class="mb-6 text-gray-600">Zaloguj się, aby uzyskać dostęp do swoich pojazdów.</p>
+        <button onclick="loginWithGoogle()" class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-bold py-3 px-6 rounded-lg shadow-md flex items-center transition">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-6 h-6 mr-3">
+            Zaloguj przez Google
+        </button>
+    </div>
 
+    <div id="app-content" style="display:none;">
+       <button onclick="logoutApp()" class="text-xs text-red-500 underline ml-2">Wyloguj</button>
+    </div>
+    
     <div id="qrcode-container" class="hidden"></div>
 
     <div class="container mx-auto" id="printable-content">
@@ -157,7 +170,7 @@
 
     <!-- Stopka -->
     <footer id="app-footer" class="container mx-auto mt-8 pt-4 border-t border-gray-300 text-center text-xs text-gray-500 space-y-1 print-hidden pb-8">
-        <p>Wersja Aplikacji: <span id="app-version-display" class="font-semibold text-gray-700">5.46</span></p>
+        <p>Wersja Aplikacji: <span id="app-version-display" class="font-semibold text-gray-700">5.47</span></p>
         <p>ID Użytkownika: <span id="user-id-footer" class="font-mono text-gray-600"></span></p>
     </footer>
 
@@ -311,11 +324,72 @@
 
     <!-- JAVASCRIPT LOGIC -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, addDoc, onSnapshot, collection, query, deleteDoc, Timestamp, setDoc, updateDoc, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // Importuj funkcje z Firebase (wersja 10)
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, deleteDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-        // --- UTILS ---
+    // Twoja konfiguracja z Firebase Console (WKLEJ TUTAJ SWOJE DANE)
+    const firebaseConfig = {
+        apiKey: "AIzaSyC8n4gAUBxvrX8ZLZGZFy0el0exghYtogs",
+        authDomain: "pm-lsp.firebaseapp.com",
+        projectId: "pm-lsp",
+        storageBucket: "pm-lsp.firebasestorage.app",
+        messagingSenderId: "48521671062",
+        appId: "1:48521671062:web:c28f3c088981855f4cadb7",
+        measurementId: "G-GRSTQBWHQM"
+    };
+    // Inicjalizacja
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+
+    // Zmienna globalna na ID użytkownika
+    let userId = null; 
+    // Stała kolekcji - możesz zostawić lub zmienić na prostszą nazwę np. 'pm_log_data'
+    const APP_COLLECTION_ID = 'pm_log_v5';
+
+    // --- TUTAJ DODAJ LOGIKĘ LOGOWANIA ---
+    // Funkcja logowania
+    window.loginWithGoogle = () => {
+        signInWithPopup(auth, provider)
+            .then((result) => {
+                console.log("Zalogowano:", result.user.email);
+            }).catch((error) => {
+                console.error("Błąd logowania:", error);
+                alert("Błąd logowania: " + error.message);
+            });
+    };
+
+    // Funkcja wylogowania
+    window.logoutApp = () => {
+        signOut(auth).then(() => location.reload());
+    };
+
+    // Nasłuchiwanie stanu zalogowania (To jest serce izolacji danych!)
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            userId = user.uid; // Przypisujemy unikalne ID od Google
+            document.getElementById('login-overlay').style.display = 'none'; // Ukryj ekran logowania
+            document.getElementById('app-content').style.display = 'block'; // Pokaż aplikację
+            
+            // Pokaż ID w stopce (dla pewności)
+            if(document.getElementById('user-id-footer')) 
+                document.getElementById('user-id-footer').innerText = user.email;
+
+            // TUTAJ URUCHOM GŁÓWNĄ FUNKCJĘ ŁADOWANIA DANYCH
+            // np. loadVehicles(); lub initApp(); - zależy jak nazwałeś główną funkcję startową
+            loadVehicles(); 
+
+        } else {
+            // Użytkownik niezalogowany
+            document.getElementById('login-overlay').style.display = 'flex';
+            document.getElementById('app-content').style.display = 'none';
+        }
+    });
+ 
+    // Inicjalizacja
         const el = (id) => document.getElementById(id);
         const safeClass = (id, action, cls) => { const e = el(id); if(e) e.classList[action](cls); };
         const safeText = (id, txt) => { const e = el(id); if(e) e.textContent = txt; };
@@ -934,6 +1008,8 @@
     </script>
 </body>
 </html>
+
+
 
 
 

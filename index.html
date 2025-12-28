@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PM Log Serwisowy Pojazdów v 5.44</title>
+    <title>PM Log Serwisowy Pojazdów v 5.45</title>
     
     <!-- Biblioteki zewnętrzne -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -157,7 +157,7 @@
 
     <!-- Stopka -->
     <footer id="app-footer" class="container mx-auto mt-8 pt-4 border-t border-gray-300 text-center text-xs text-gray-500 space-y-1 print-hidden pb-8">
-        <p>Wersja Aplikacji: <span id="app-version-display" class="font-semibold text-gray-700">5.44</span></p>
+        <p>Wersja Aplikacji: <span id="app-version-display" class="font-semibold text-gray-700">5.45</span></p>
         <p>ID Użytkownika: <span id="user-id-footer" class="font-mono text-gray-600"></span></p>
     </footer>
 
@@ -275,7 +275,7 @@
                     <div><label class="input-label">Przebieg (km)</label><input type="text" inputmode="numeric" id="service-mileage" required class="input-field format-thousands" placeholder="np. 150 000"></div>
                 </div>
                 
-                <!-- Sekcja Kosztów - POPRAWIONA SZEROKOŚĆ I UKŁAD -->
+                <!-- Sekcja Kosztów -->
                 <div class="border p-3 rounded-lg bg-gray-50">
                     <label class="input-label border-b mb-2 pb-1">Koszty (PLN)</label>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -308,7 +308,9 @@
             </form>
         </div>
     </div>
-	<script type="module">
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, onSnapshot, collection, query, deleteDoc, Timestamp, setDoc, updateDoc, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -387,7 +389,7 @@
 
                 // Dane do eksportu
                 const exportData = {
-                    version: "5.44",
+                    version: "5.45",
                     exportDate: new Date().toISOString(),
                     vehicle: v,
                     services: currentServices, // currentServices jest już załadowane
@@ -506,8 +508,6 @@
             }
         };
         el('close-ai-modal').onclick = () => { safeClass('ai-modal', 'add', 'hidden'); el('ai-modal').style.display = 'none'; };
-		<script type="module">
-        // Kontynuacja skryptu...
         
         // --- DATA LOADING ---
         function setupOwnerData() {
@@ -519,6 +519,24 @@
                 loadVehicles();
             });
         }
+        
+        // --- OBSŁUGA DANYCH WŁAŚCICIELA (EDYCJA) ---
+        el('edit-owner-btn').onclick = () => {
+             const n = el('owner-name-display').textContent;
+             const p = el('owner-phone-display').textContent;
+             const e = el('owner-email-display').textContent;
+             safeVal('owner-name', n === 'Nieustawione' ? '' : n);
+             safeVal('owner-phone', p === '-' ? '' : p);
+             safeVal('owner-email', e === '-' ? '' : e);
+             safeClass('owner-modal','remove','hidden'); el('owner-modal').style.display='flex';
+        };
+        el('close-owner-modal').onclick = () => { safeClass('owner-modal','add','hidden'); el('owner-modal').style.display='none'; };
+        el('owner-form').onsubmit = async (e) => {
+             e.preventDefault();
+             const d = { name: el('owner-name').value, phone: el('owner-phone').value, email: el('owner-email').value };
+             await setDoc(doc(db,'artifacts',APP_COLLECTION_ID,'users',userId,'profile','owner_data'), d, {merge:true});
+             safeClass('owner-modal','add','hidden'); el('owner-modal').style.display='none';
+        };
 
         function loadVehicles() {
             onSnapshot(query(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles')), s => {
@@ -584,6 +602,94 @@
                 renderServices(); renderStatus(v);
             });
         }
+        
+        // --- OBSŁUGA DOMYŚLNEGO POJAZDU ---
+        el('set-default-btn').onclick = async () => {
+             if(selectedVehicleId) await setDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'profile', 'owner_data'), {default_vehicle_id: selectedVehicleId}, {merge:true});
+        };
+        
+        // --- USUWANIE POJAZDU ---
+        el('delete-vehicle-btn').onclick = async () => {
+             if(await customConfirm("Usunąć pojazd?", "Tej operacji nie można cofnąć. Stracisz historię.", "Usuń")) {
+                 await deleteDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId));
+                 if(selectedVehicleId === defaultVehicleId) await setDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'profile', 'owner_data'), {default_vehicle_id: null}, {merge:true});
+             }
+        };
+
+        // --- TASKS (ZADANIA) - BRAKUJĄCY KOD W POPRZEDNIEJ WERSJI ---
+        function setupTasksListener(vehicleId) {
+            if(!vehicleId) return;
+            unsubscribeTasks();
+            const q = query(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', vehicleId, 'tasks'), orderBy('createdAt', 'desc'));
+            unsubscribeTasks = onSnapshot(q, (snapshot) => {
+                const tasks = [];
+                snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
+                renderTasks(tasks);
+            });
+        }
+
+        function renderTasks(tasks) {
+            const activeList = el('active-tasks-list');
+            const completedList = el('completed-tasks-list');
+            const noMsg = el('no-tasks-msg');
+            const countSpan = el('completed-count');
+            
+            activeList.innerHTML = ''; completedList.innerHTML = '';
+            let activeCount = 0, completedCount = 0;
+
+            tasks.forEach(t => {
+                const div = document.createElement('div');
+                div.className = `task-item flex items-center justify-between bg-gray-50 p-2 rounded border border-gray-200 ${t.is_completed ? 'completed opacity-70' : ''}`;
+                const icon = t.is_completed ? 'fa-check-square text-green-500' : 'fa-square text-gray-400';
+                
+                div.innerHTML = `
+                    <div class="flex items-center cursor-pointer flex-1" onclick="window.toggleTask('${t.id}', ${!t.is_completed})">
+                        <i class="far ${icon} mr-3 text-lg"></i>
+                        <span class="text-sm text-gray-700 font-medium select-none">${t.text}</span>
+                    </div>
+                    <button onclick="window.deleteTask('${t.id}')" class="ml-2 text-red-300 hover:text-red-500 p-1"><i class="fas fa-times"></i></button>
+                `;
+
+                if (t.is_completed) { completedList.appendChild(div); completedCount++; }
+                else { activeList.appendChild(div); activeCount++; }
+            });
+
+            if (activeCount === 0) noMsg.classList.remove('hidden'); else noMsg.classList.add('hidden');
+            countSpan.textContent = completedCount;
+            if(completedCount > 0) el('completed-tasks-container').classList.remove('hidden'); else el('completed-tasks-container').classList.add('hidden');
+        }
+
+        // Dodawanie zadania
+        el('add-task-btn').onclick = async () => {
+            const inp = el('new-task-input'); const val = inp.value.trim();
+            if(!val || !selectedVehicleId) return;
+            await addDoc(collection(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId, 'tasks'), {
+                text: val, is_completed: false, createdAt: serverTimestamp()
+            });
+            inp.value = '';
+        };
+        
+        // Funkcje globalne dla zadań (wywoływane z HTML)
+        window.toggleTask = async (taskId, newState) => {
+            if(!selectedVehicleId) return;
+            await updateDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId, 'tasks', taskId), { is_completed: newState });
+        };
+        window.deleteTask = async (taskId) => {
+            if(!selectedVehicleId) return;
+            await deleteDoc(doc(db, 'artifacts', APP_COLLECTION_ID, 'users', userId, 'vehicles', selectedVehicleId, 'tasks', taskId));
+        };
+        
+        // Toggle Completed Section
+        el('toggle-completed-tasks').onclick = () => {
+            const list = el('completed-tasks-list');
+            const icon = el('toggle-icon');
+            if(list.classList.contains('hidden')) {
+                list.classList.remove('hidden'); icon.style.transform = 'rotate(90deg)';
+            } else {
+                list.classList.add('hidden'); icon.style.transform = 'rotate(0deg)';
+            }
+        };
+
 
         // --- PDF GENERATION ---
         el('pdf-generate-btn').onclick = async () => {
